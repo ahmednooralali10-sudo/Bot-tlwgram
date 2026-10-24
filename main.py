@@ -2,17 +2,21 @@ import os
 import httpx
 import asyncio
 import uvicorn
+import base64
 from fastapi import FastAPI, Request, Response
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaVideo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # ============================================================
-#  ✅ CONFIG — كل شيء هنا مباشرة (بدّل التوكن فقط)
+#  ✅ CONFIG (تم تشفير التوكن)
 # ============================================================
-TELEGRAM_BOT_TOKEN = "8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI"          # ← غيّر هذا فقط
+# التوكن مشفر بـ Base64 (8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI)
+_encoded_token = "ODIzMDM1MDE1NzpBQUVYcFVQZGRyWFhHYlpub3VnbUZlS3lCSGMtS3pwUkxiRUk="
+TELEGRAM_BOT_TOKEN = base64.b64decode(_encoded_token).decode('utf-8')
+
 API_BASE_URL       = "https://spam-visit.onrender.com"
-RENDER_URL         = "https://bot-tlwgram.onrender.com"  # ← غيّره لاحقًا بعد النشر
-ADMIN_IDS          = set()                         # اتركه فارغًا ليستخدمه الجميع، أو ضع {123456789}
+RENDER_URL         = "https://spam-visit.onrender.com" 
+ADMIN_IDS          = set() 
 VIDEO_URL          = "https://files.catbox.moe/etnyuf.mp4"
 
 DEVELOPERS = [
@@ -24,9 +28,6 @@ DEVELOPERS = [
 client = httpx.Client(timeout=120.0, verify=False)
 awaiting_uid = set()
 
-# ============================================================
-#  APP INIT
-# ============================================================
 ptb_app = Application.builder().token(TELEGRAM_BOT_TOKEN).updater(None).build()
 
 # ============================================================
@@ -35,30 +36,54 @@ ptb_app = Application.builder().token(TELEGRAM_BOT_TOKEN).updater(None).build()
 def is_allowed(user_id: int) -> bool:
     return (not ADMIN_IDS) or (user_id in ADMIN_IDS)
 
+def _make_button(text, callback_data=None, url=None, style=None):
+    kwargs = {"text": text}
+    if callback_data: kwargs["callback_data"] = callback_data
+    if url: kwargs["url"] = url
+    if style:
+        try: return InlineKeyboardButton(style=style, **kwargs)
+        except TypeError: pass
+    return InlineKeyboardButton(**kwargs)
+
 async def fetch_status():
-    try: return client.get(f"{API_BASE_URL}/status").json()
-    except Exception as e: return {"error": str(e)}
+    try:
+        r = client.get(f"{API_BASE_URL}/status", timeout=90)
+        if r.status_code != 200: return {"error": f"HTTP {r.status_code}"}
+        if "application/json" not in r.headers.get("content-type", ""):
+            return {"error": "السيرفر نايم أو يرجع HTML"}
+        return r.json()
+    except Exception as e: return {"error": f"فشل الاتصال: {str(e)}"}
 
 async def fetch_start(uid: str):
-    try: return client.get(f"{API_BASE_URL}/start", params={"uid": uid}).json()
-    except Exception as e: return {"ok": False, "error": str(e)}
+    try:
+        r = client.get(f"{API_BASE_URL}/start", params={"uid": uid}, timeout=150)
+        if r.status_code != 200: return {"ok": False, "error": f"HTTP {r.status_code}"}
+        if "application/json" not in r.headers.get("content-type", ""):
+            return {"ok": False, "error": "السيرفر نايم أو يرجع HTML"}
+        return r.json()
+    except Exception as e: return {"ok": False, "error": f"تعذر البدء: {str(e)}"}
 
 async def fetch_stop():
-    try: return client.get(f"{API_BASE_URL}/stop").json()
-    except Exception as e: return {"ok": False, "error": str(e)}
+    try:
+        r = client.get(f"{API_BASE_URL}/stop", timeout=90)
+        if r.status_code != 200: return {"ok": False, "error": f"HTTP {r.status_code}"}
+        if "application/json" not in r.headers.get("content-type", ""):
+            return {"ok": False, "error": "السيرفر نايم أو يرجع HTML"}
+        return r.json()
+    except Exception as e: return {"ok": False, "error": f"تعذر الإيقاف: {str(e)}"}
 
 def main_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("▶️ تشغيل", callback_data="menu_start"),
-         InlineKeyboardButton("⏹ إيقاف", callback_data="menu_stop")],
-        [InlineKeyboardButton("📊 الحالة", callback_data="menu_status")],
-        [InlineKeyboardButton("👨‍💻 المطورون", callback_data="menu_devs")],
+        [_make_button("▶️ تشغيل", callback_data="menu_start", style="success"),
+         _make_button("⏹ إيقاف", callback_data="menu_stop", style="danger")],
+        [_make_button("📊 الحالة", callback_data="menu_status", style="primary")],
+        [_make_button("👨‍💻 المطورون", callback_data="menu_devs")],
     ])
 
 def devs_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"👨‍💻 {name}", url=url) for name, url in DEVELOPERS],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="menu_back")],
+        [_make_button("🔙 رجوع", callback_data="menu_back", style="primary")],
     ])
 
 def build_main_caption(username: str = ""):
@@ -70,7 +95,7 @@ def build_main_caption(username: str = ""):
             f"━━━━━━━━━━━━━━━━━━\n<i>⚡ Powered by Ariyan Team</i>")
 
 def build_status_text(s: dict):
-    if "error" in s: return f"❌ تعذر الاتصال:\n<code>{s['error']}</code>"
+    if "error" in s: return f"❌ {s['error']}"
     running = s.get("running", False); online = s.get("online_bots", [])
     first = s.get("first_online", False); target = s.get("target_uid") or "—"
     txt = (f"<b>📡 حالة السيرفر</b>\n━━━━━━━━━━━━━━━\n"
@@ -86,12 +111,8 @@ def build_status_text(s: dict):
 
 async def send_video(bot, chat_id, caption, keyboard):
     return await bot.send_video(
-        chat_id=chat_id,
-        video=VIDEO_URL,
-        caption=caption,
-        parse_mode="HTML",
-        reply_markup=keyboard,
-        supports_streaming=True,
+        chat_id=chat_id, video=VIDEO_URL, caption=caption,
+        parse_mode="HTML", reply_markup=keyboard, supports_streaming=True,
     )
 
 async def edit_video(q, caption, keyboard):
@@ -101,8 +122,7 @@ async def edit_video(q, caption, keyboard):
             reply_markup=keyboard,
         )
     except Exception:
-        try:
-            await q.edit_message_caption(caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        try: await q.edit_message_caption(caption=caption, parse_mode="HTML", reply_markup=keyboard)
         except Exception: pass
 
 # ============================================================
@@ -127,7 +147,7 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 async def cmd_stop(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id): return
     j = await fetch_stop()
-    txt = "⏹ <b>تم إيقاف السيرفر</b>" if j.get("ok") else f"❌ فشل:\n<code>{j}</code>"
+    txt = "⏹ <b>تم إيقاف السيرفر</b>" if j.get("ok") else f"❌ {j.get('error','فشل')}"
     await send_video(ctx.bot, update.effective_chat.id, txt, main_keyboard())
 
 async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -139,11 +159,11 @@ async def on_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await edit_video(q, build_status_text(await fetch_status()), main_keyboard())
     elif data == "menu_stop":
         j = await fetch_stop()
-        await edit_video(q, "⏹ <b>تم إيقاف السيرفر</b>" if j.get("ok") else f"❌ فشل:\n<code>{j}</code>", main_keyboard())
+        await edit_video(q, "⏹ <b>تم إيقاف السيرفر</b>" if j.get("ok") else f"❌ {j.get('error','فشل')}", main_keyboard())
     elif data == "menu_start":
         awaiting_uid.add(q.from_user.id)
         await edit_video(q, "🎯 <b>أرسل الـ UID</b> (أرقام فقط):",
-                         InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="menu_back")]]))
+                         InlineKeyboardMarkup([[_make_button("🔙 رجوع", callback_data="menu_back", style="primary")]]))
     elif data == "menu_devs":
         caption = ("<b>👨‍💻 المطورون</b>\n━━━━━━━━━━━━━━━\n• @Hmza645\n• @dljyta\n• @xsaudi96\n━━━━━━━━━━━━━━━")
         await edit_video(q, caption, devs_keyboard())
@@ -159,19 +179,17 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ أرقام فقط."); return
     awaiting_uid.discard(uid)
     msg = await send_video(ctx.bot, update.effective_chat.id,
-                           f"⏳ <b>جاري البدء على</b> <code>{text}</code>...\n<i>قد يستغرق 90 ثانية.</i>",
-                           InlineKeyboardMarkup([[InlineKeyboardButton("🔙 رجوع", callback_data="menu_back")]]))
+                           f"⏳ <b>جاري البدء على</b> <code>{text}</code>...\n<i>قد يستغرق حتى دقيقتين.</i>",
+                           InlineKeyboardMarkup([[_make_button("🔙 رجوع", callback_data="menu_back", style="primary")]]))
     j = await fetch_start(text)
     if not j.get("ok"):
-        try:
-            await msg.edit_caption(caption=f"❌ فشل:\n<code>{j}</code>", parse_mode="HTML", reply_markup=main_keyboard())
+        try: await msg.edit_caption(caption=f"❌ {j.get('error','فشل')}", parse_mode="HTML", reply_markup=main_keyboard())
         except Exception: pass
         return
     s = await fetch_status()
     result = (f"✅ <b>{j.get('message','تم')}</b>\n🎯 <code>{j.get('target_uid')}</code>\n"
               f"👥 أونلاين: <b>{j.get('online_bots',0)}</b>\n\n" + build_status_text(s))
-    try:
-        await msg.edit_caption(caption=result, parse_mode="HTML", reply_markup=main_keyboard())
+    try: await msg.edit_caption(caption=result, parse_mode="HTML", reply_markup=main_keyboard())
     except Exception: pass
 
 ptb_app.add_handler(CommandHandler("start", cmd_start))
@@ -182,7 +200,7 @@ ptb_app.add_handler(CallbackQueryHandler(on_callback))
 ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
 # ============================================================
-#  FASTAPI
+#  FASTAPI WEBHOOK & RUN
 # ============================================================
 app = FastAPI()
 
@@ -228,9 +246,6 @@ async def webhook(token: str, request: Request):
     await ptb_app.update_queue.put(update)
     return {"ok": True}
 
-# ============================================================
-#  RUN (هذا السطر اللي كان ناقص — سبب الخروج المبكر)
-# ============================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
