@@ -12,7 +12,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 #  ✅ CONFIG
 # ============================================================
 # ⚠️ ضع التوكن الجديد هنا من @BotFather
-TELEGRAM_BOT_TOKEN = "8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI"
+TELEGRAM_BOT_TOKEN = "8230350157:AAGRh2yxff0XymkwxsFabWQAXqM7bHdaipY"
 
 # سيرفر السبام (لا تغيره)
 API_BASE_URL = "https://spam-visit.onrender.com"
