@@ -1,8 +1,10 @@
 import os
 import httpx
 import asyncio
+import threading
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 import uvicorn
-from fastapi import FastAPI, Request, Response
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaVideo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -11,10 +13,12 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # ============================================================
 # ⚠️ ضع التوكن الجديد هنا من @BotFather
 TELEGRAM_BOT_TOKEN = "8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI"
-API_BASE_URL       = "https://spam-visit.onrender.com"
-RENDER_URL         = "https://spam-visit.onrender.com" 
-ADMIN_IDS          = set() 
-VIDEO_URL          = "https://files.catbox.moe/etnyuf.mp4"
+
+# سيرفر السبام (لا تغيره)
+API_BASE_URL = "https://spam-visit.onrender.com"
+
+ADMIN_IDS = set() 
+VIDEO_URL = "https://files.catbox.moe/etnyuf.mp4"
 
 DEVELOPERS = [
     ("@Hmza645",  "https://t.me/Hmza645"),
@@ -22,10 +26,8 @@ DEVELOPERS = [
     ("@xsaudi96", "https://t.me/xsaudi96"),
 ]
 
-client = httpx.Client(timeout=120.0, verify=False)
+client = httpx.Client(timeout=150.0, verify=False)
 awaiting_uid = set()
-
-ptb_app = Application.builder().token(TELEGRAM_BOT_TOKEN).updater(None).build()
 
 # ============================================================
 #  HELPERS
@@ -47,7 +49,7 @@ async def fetch_status():
         r = client.get(f"{API_BASE_URL}/status", timeout=90)
         if r.status_code != 200: return {"error": f"HTTP {r.status_code}"}
         if "application/json" not in r.headers.get("content-type", ""):
-            return {"error": "السيرفر نايم أو يرجع HTML"}
+            return {"error": "السيرفر نايم، جاري إيقاظه..."}
         return r.json()
     except Exception as e: return {"error": f"فشل الاتصال: {str(e)}"}
 
@@ -56,7 +58,7 @@ async def fetch_start(uid: str):
         r = client.get(f"{API_BASE_URL}/start", params={"uid": uid}, timeout=150)
         if r.status_code != 200: return {"ok": False, "error": f"HTTP {r.status_code}"}
         if "application/json" not in r.headers.get("content-type", ""):
-            return {"ok": False, "error": "السيرفر نايم أو يرجع HTML"}
+            return {"ok": False, "error": "السيرفر نايم، يرجى المحاولة بعد دقيقة"}
         return r.json()
     except Exception as e: return {"ok": False, "error": f"تعذر البدء: {str(e)}"}
 
@@ -65,7 +67,7 @@ async def fetch_stop():
         r = client.get(f"{API_BASE_URL}/stop", timeout=90)
         if r.status_code != 200: return {"ok": False, "error": f"HTTP {r.status_code}"}
         if "application/json" not in r.headers.get("content-type", ""):
-            return {"ok": False, "error": "السيرفر نايم أو يرجع HTML"}
+            return {"ok": False, "error": "السيرفر نايم، يرجى المحاولة بعد دقيقة"}
         return r.json()
     except Exception as e: return {"ok": False, "error": f"تعذر الإيقاف: {str(e)}"}
 
@@ -189,59 +191,40 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try: await msg.edit_caption(caption=result, parse_mode="HTML", reply_markup=main_keyboard())
     except Exception: pass
 
-ptb_app.add_handler(CommandHandler("start", cmd_start))
-ptb_app.add_handler(CommandHandler("status", cmd_status))
-ptb_app.add_handler(CommandHandler("stop", cmd_stop))
-ptb_app.add_handler(CommandHandler("devs", cmd_devs))
-ptb_app.add_handler(CallbackQueryHandler(on_callback))
-ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-
 # ============================================================
-#  FASTAPI WEBHOOK & RUN
+#  FASTAPI & POLLING
 # ============================================================
 app = FastAPI()
 
+@app.get("/")
+@app.get("/health")
+async def health():
+    return {"status": "ok", "bot": "Ariyan V-Badge Polling Mode"}
+
+def run_bot_polling():
+    """تشغيل البوت بوضع Polling في Thread منفصل"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # بناء البوت
+    bot_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # إضافة الأوامر
+    bot_app.add_handler(CommandHandler("start", cmd_start))
+    bot_app.add_handler(CommandHandler("status", cmd_status))
+    bot_app.add_handler(CommandHandler("stop", cmd_stop))
+    bot_app.add_handler(CommandHandler("devs", cmd_devs))
+    bot_app.add_handler(CallbackQueryHandler(on_callback))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+    
+    print("🤖 Bot is running in Polling mode...")
+    bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
+
 @app.on_event("startup")
 async def startup():
-    await ptb_app.initialize()
-    await ptb_app.start()
-    if RENDER_URL and "onrender.com" in RENDER_URL:
-        webhook_url = f"{RENDER_URL}/webhook/{TELEGRAM_BOT_TOKEN}"
-        try:
-            await ptb_app.bot.set_webhook(url=webhook_url)
-            print(f"✅ Webhook set: {webhook_url}")
-        except Exception as e:
-            print(f"❌ Webhook error: {e}")
-    asyncio.create_task(self_ping())
-
-@app.on_event("shutdown")
-async def shutdown():
-    await ptb_app.stop()
-
-async def self_ping():
-    await asyncio.sleep(10)
-    while True:
-        try:
-            if RENDER_URL:
-                async with httpx.AsyncClient() as c:
-                    await c.get(f"{RENDER_URL}/health", timeout=10)
-        except: pass
-        await asyncio.sleep(14 * 60)
-
-@app.get("/")
-async def root(): return {"status": "ok", "bot": "Ariyan V-Badge"}
-
-@app.get("/health")
-async def health(): return {"status": "ok"}
-
-@app.post("/webhook/{token}")
-async def webhook(token: str, request: Request):
-    if token != TELEGRAM_BOT_TOKEN:
-        return Response(status_code=403)
-    data = await request.json()
-    update = Update.de_json(data, ptb_app.bot)
-    await ptb_app.update_queue.put(update)
-    return {"ok": True}
+    # تشغيل البوت في الخلفية بمجرد إقلاع السيرفر
+    t = threading.Thread(target=run_bot_polling, daemon=True)
+    t.start()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
