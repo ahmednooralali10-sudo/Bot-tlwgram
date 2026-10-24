@@ -2,9 +2,8 @@ import os
 import httpx
 import asyncio
 import threading
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
 import uvicorn
+from fastapi import FastAPI
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaVideo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
@@ -14,7 +13,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 # ⚠️ ضع التوكن الجديد هنا من @BotFather
 TELEGRAM_BOT_TOKEN = "8230350157:AAGRh2yxff0XymkwxsFabWQAXqM7bHdaipY"
 
-# سيرفر السبام (لا تغيره)
+# سيرفر السبام
 API_BASE_URL = "https://spam-visit.onrender.com"
 
 ADMIN_IDS = set() 
@@ -192,40 +191,37 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     except Exception: pass
 
 # ============================================================
-#  FASTAPI & POLLING
+#  MAIN THREAD: البوت يعمل هنا
 # ============================================================
-app = FastAPI()
+bot_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-@app.get("/")
-@app.get("/health")
+bot_app.add_handler(CommandHandler("start", cmd_start))
+bot_app.add_handler(CommandHandler("status", cmd_status))
+bot_app.add_handler(CommandHandler("stop", cmd_stop))
+bot_app.add_handler(CommandHandler("devs", cmd_devs))
+bot_app.add_handler(CallbackQueryHandler(on_callback))
+bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
+
+# ============================================================
+#  BACKGROUND THREAD: FastAPI (فقط لإبقاء Render صاحي)
+# ============================================================
+web_app = FastAPI()
+
+@web_app.get("/")
+@web_app.get("/health")
 async def health():
-    return {"status": "ok", "bot": "Ariyan V-Badge Polling Mode"}
+    return {"status": "ok", "bot": "running"}
 
-def run_bot_polling():
-    """تشغيل البوت بوضع Polling في Thread منفصل"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # بناء البوت
-    bot_app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-    
-    # إضافة الأوامر
-    bot_app.add_handler(CommandHandler("start", cmd_start))
-    bot_app.add_handler(CommandHandler("status", cmd_status))
-    bot_app.add_handler(CommandHandler("stop", cmd_stop))
-    bot_app.add_handler(CommandHandler("devs", cmd_devs))
-    bot_app.add_handler(CallbackQueryHandler(on_callback))
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-    
-    print("🤖 Bot is running in Polling mode...")
-    bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
-
-@app.on_event("startup")
-async def startup():
-    # تشغيل البوت في الخلفية بمجرد إقلاع السيرفر
-    t = threading.Thread(target=run_bot_polling, daemon=True)
-    t.start()
+def run_web_server():
+    port = int(os.environ.get("PORT", 8000))
+    # log_level="warning" عشان ما يزعج اللوج برسائل البوت
+    uvicorn.run(web_app, host="0.0.0.0", port=port, log_level="warning")
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # 1. تشغيل سيرفر الويب في الخلفية (لـ Render health checks)
+    t = threading.Thread(target=run_web_server, daemon=True)
+    t.start()
+
+    # 2. تشغيل البوت في الـ Main Thread (عشان يشتغل بدون مشاكل الإشارات)
+    print("🤖 Bot is running in Polling mode on Main Thread...")
+    bot_app.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
