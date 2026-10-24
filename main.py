@@ -1,18 +1,19 @@
 import os
 import httpx
 import asyncio
+import uvicorn
 from fastapi import FastAPI, Request, Response
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaVideo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-# ================= CONFIG =================
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-API_BASE_URL = os.environ.get("API_BASE_URL", "https://spam-visit.onrender.com")
-RENDER_URL = os.environ.get("RENDER_URL", "")  # رابط خدمة البوت على Render (مثلاً https://ariyan-bot.onrender.com)
-ADMIN_IDS = set(int(x) for x in os.environ.get("ADMIN_IDS", "").split(",") if x.strip().isdigit())
-
-# رابط الفيديو المباشر من Catbox
-VIDEO_URL = os.environ.get("VIDEO_URL", "https://files.catbox.moe/etnyuf.mp4")
+# ============================================================
+#  ✅ CONFIG — كل شيء هنا مباشرة (بدّل التوكن فقط)
+# ============================================================
+TELEGRAM_BOT_TOKEN = "8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI"          # ← غيّر هذا فقط
+API_BASE_URL       = "https://spam-visit.onrender.com"
+RENDER_URL         = "https://bot-tlwgram.onrender.com"  # ← غيّره لاحقًا بعد النشر
+ADMIN_IDS          = set()                         # اتركه فارغًا ليستخدمه الجميع، أو ضع {123456789}
+VIDEO_URL          = "https://files.catbox.moe/etnyuf.mp4"
 
 DEVELOPERS = [
     ("@Hmza645",  "https://t.me/Hmza645"),
@@ -23,11 +24,14 @@ DEVELOPERS = [
 client = httpx.Client(timeout=120.0, verify=False)
 awaiting_uid = set()
 
-# ================= APP INIT =================
-# نبني Application بدون updater (لأننا سنستخدم webhook يدوياً)
+# ============================================================
+#  APP INIT
+# ============================================================
 ptb_app = Application.builder().token(TELEGRAM_BOT_TOKEN).updater(None).build()
 
-# ================= HELPERS =================
+# ============================================================
+#  HELPERS
+# ============================================================
 def is_allowed(user_id: int) -> bool:
     return (not ADMIN_IDS) or (user_id in ADMIN_IDS)
 
@@ -99,10 +103,11 @@ async def edit_video(q, caption, keyboard):
     except Exception:
         try:
             await q.edit_message_caption(caption=caption, parse_mode="HTML", reply_markup=keyboard)
-        except Exception:
-            pass
+        except Exception: pass
 
-# ================= HANDLERS =================
+# ============================================================
+#  HANDLERS
+# ============================================================
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id): return
     await send_video(ctx.bot, update.effective_chat.id,
@@ -169,7 +174,6 @@ async def on_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await msg.edit_caption(caption=result, parse_mode="HTML", reply_markup=main_keyboard())
     except Exception: pass
 
-# ربط الأوامر
 ptb_app.add_handler(CommandHandler("start", cmd_start))
 ptb_app.add_handler(CommandHandler("status", cmd_status))
 ptb_app.add_handler(CommandHandler("stop", cmd_stop))
@@ -177,19 +181,22 @@ ptb_app.add_handler(CommandHandler("devs", cmd_devs))
 ptb_app.add_handler(CallbackQueryHandler(on_callback))
 ptb_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
 
-# ================= FASTAPI WEBHOOK =================
+# ============================================================
+#  FASTAPI
+# ============================================================
 app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
     await ptb_app.initialize()
     await ptb_app.start()
-    if RENDER_URL:
+    if RENDER_URL and "onrender.com" in RENDER_URL:
         webhook_url = f"{RENDER_URL}/webhook/{TELEGRAM_BOT_TOKEN}"
-        await ptb_app.bot.set_webhook(url=webhook_url)
-        print(f"✅ Webhook set: {webhook_url}")
-    else:
-        print("⚠️ RENDER_URL not set — webhook not registered!")
+        try:
+            await ptb_app.bot.set_webhook(url=webhook_url)
+            print(f"✅ Webhook set: {webhook_url}")
+        except Exception as e:
+            print(f"❌ Webhook error: {e}")
     asyncio.create_task(self_ping())
 
 @app.on_event("shutdown")
@@ -197,12 +204,12 @@ async def shutdown():
     await ptb_app.stop()
 
 async def self_ping():
-    """ينبض كل 14 دقيقة لمنع السيرفر المجاني من النوم"""
     await asyncio.sleep(10)
     while True:
         try:
-            async with httpx.AsyncClient() as c:
-                await c.get(f"{RENDER_URL}/health", timeout=10)
+            if RENDER_URL:
+                async with httpx.AsyncClient() as c:
+                    await c.get(f"{RENDER_URL}/health", timeout=10)
         except: pass
         await asyncio.sleep(14 * 60)
 
@@ -220,3 +227,10 @@ async def webhook(token: str, request: Request):
     update = Update.de_json(data, ptb_app.bot)
     await ptb_app.update_queue.put(update)
     return {"ok": True}
+
+# ============================================================
+#  RUN (هذا السطر اللي كان ناقص — سبب الخروج المبكر)
+# ============================================================
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
