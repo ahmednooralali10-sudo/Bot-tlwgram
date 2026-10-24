@@ -2,18 +2,15 @@ import os
 import httpx
 import asyncio
 import uvicorn
-import base64
 from fastapi import FastAPI, Request, Response
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaVideo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
 # ============================================================
-#  ✅ CONFIG (تم تشفير التوكن)
+#  ✅ CONFIG
 # ============================================================
-# التوكن مشفر بـ Base64 (8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI)
-_encoded_token = "ODIzMDM1MDE1NzpBQUVYcFVQZGRyWFhHYlpub3VnbUZlS3lCSGMtS3pwUkxiRUk="
-TELEGRAM_BOT_TOKEN = base64.b64decode(_encoded_token).decode('utf-8')
-
+# ⚠️ ضع التوكن الجديد هنا من @BotFather
+TELEGRAM_BOT_TOKEN = "8230350157:AAEXpUPDdrXXGbZnugmFeKyBHc-KzpRLbEI"
 API_BASE_URL       = "https://spam-visit.onrender.com"
 RENDER_URL         = "https://spam-visit.onrender.com" 
 ADMIN_IDS          = set() 
