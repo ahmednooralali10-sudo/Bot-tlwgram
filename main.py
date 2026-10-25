@@ -13,7 +13,7 @@ import checker
 # ============================================================
 #  ✅ CONFIG
 # ============================================================
-TELEGRAM_BOT_TOKEN = "8230350157:AAGRh2yxff0XymkwxsFabWQAXqM7bHdaipY"
+TELEGRAM_BOT_TOKEN = "mahdi1234"
 API_BASE_URL = "https://spam-visit.onrender.com"
 ADMIN_IDS = set() 
 VIDEO_URL = "https://files.catbox.moe/etnyuf.mp4"
