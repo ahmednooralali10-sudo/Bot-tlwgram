@@ -13,7 +13,11 @@ import checker
 # ============================================================
 #  ✅ CONFIG
 # ============================================================
-TELEGRAM_BOT_TOKEN = "mahdi1234"
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("❌ خطأ: لم يتم العثور على TELEGRAM_BOT_TOKEN في متغيرات البيئة!")
+
 API_BASE_URL = "https://spam-visit.onrender.com"
 ADMIN_IDS = set() 
 VIDEO_URL = "https://files.catbox.moe/etnyuf.mp4"
